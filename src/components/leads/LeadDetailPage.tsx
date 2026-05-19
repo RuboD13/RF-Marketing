@@ -11,9 +11,39 @@ import { Button } from '../ui/Button';
 import { Rating } from '../ui/Rating';
 import { Spinner } from '../ui/Spinner';
 import { Card } from '../ui/Card';
-import { STATUS_COLORS, LEAD_STATUSES } from '../../lib/constants';
+import { STATUS_COLORS, LEAD_STATUSES, LEAD_SOURCES, RENTAL_TYPES } from '../../lib/constants';
 import { formatDate } from '../../lib/utils';
-import type { LeadStatus } from '../../types';
+import type { Lead, LeadSource, LeadStatus, RentalType } from '../../types';
+
+type EditableFields = {
+  nombre: string;
+  provincia: string;
+  zona: string;
+  email: string;
+  telefono: string;
+  web: string;
+  perfilIdealista: string;
+  fuente: LeadSource | '';
+  numAnuncios: string;
+  nivelVolumen: string;
+  tipoAlquiler: RentalType[];
+};
+
+function leadToEditable(lead: Lead): EditableFields {
+  return {
+    nombre: lead.nombre ?? '',
+    provincia: lead.provincia ?? '',
+    zona: lead.zona ?? '',
+    email: lead.email ?? '',
+    telefono: lead.telefono ?? '',
+    web: lead.web ?? '',
+    perfilIdealista: lead.perfilIdealista ?? '',
+    fuente: (lead.fuente as LeadSource) ?? '',
+    numAnuncios: lead.numAnuncios ?? '',
+    nivelVolumen: lead.nivelVolumen ?? '',
+    tipoAlquiler: lead.tipoAlquiler ?? [],
+  };
+}
 
 export function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +54,10 @@ export function LeadDetailPage() {
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
+
+  const [editingInfo, setEditingInfo] = useState(false);
+  const [infoForm, setInfoForm] = useState<EditableFields | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -60,6 +94,64 @@ export function LeadDetailPage() {
     if (canEdit) updateLead.mutate({ id: lead.id, updates: { prioridad: v } });
   };
 
+  const startEditInfo = () => {
+    setInfoForm(leadToEditable(lead));
+    setSaveError(null);
+    setEditingInfo(true);
+  };
+
+  const cancelEditInfo = () => {
+    setEditingInfo(false);
+    setInfoForm(null);
+    setSaveError(null);
+  };
+
+  const handleSaveInfo = async () => {
+    if (!infoForm) return;
+    // Build a diff so we only send fields that actually changed.
+    const original = leadToEditable(lead);
+    const updates: Record<string, unknown> = {};
+    (Object.keys(infoForm) as Array<keyof EditableFields>).forEach((key) => {
+      const a = infoForm[key];
+      const b = original[key];
+      const changed = Array.isArray(a) || Array.isArray(b)
+        ? JSON.stringify(a) !== JSON.stringify(b)
+        : a !== b;
+      if (changed) {
+        updates[key] = key === 'fuente' && a === '' ? null : a;
+      }
+    });
+
+    if (Object.keys(updates).length === 0) {
+      setEditingInfo(false);
+      return;
+    }
+
+    try {
+      setSaveError(null);
+      await updateLead.mutateAsync({ id: lead.id, updates });
+      setEditingInfo(false);
+      setInfoForm(null);
+    } catch (err) {
+      const message = (err as { response?: { data?: { error?: string } }; message?: string })
+        ?.response?.data?.error
+        || (err as { message?: string })?.message
+        || 'No se pudo guardar';
+      setSaveError(message);
+    }
+  };
+
+  const toggleTipoAlquiler = (type: RentalType) => {
+    if (!infoForm) return;
+    const current = infoForm.tipoAlquiler;
+    setInfoForm({
+      ...infoForm,
+      tipoAlquiler: current.includes(type)
+        ? current.filter((t) => t !== type)
+        : [...current, type],
+    });
+  };
+
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl">
       {/* Back + title */}
@@ -85,29 +177,139 @@ export function LeadDetailPage() {
         <div className="lg:col-span-2 space-y-4">
           {/* Info grid */}
           <Card>
-            <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-              <Building2 size={16} className="text-primary" /> Información
-            </h3>
-            <div className="grid grid-cols-2 gap-4">
-              <InfoField label="Email" value={lead.email} href={lead.email ? `mailto:${lead.email}` : undefined} icon={<Mail size={14} />} />
-              <InfoField label="Teléfono" value={lead.telefono} href={lead.telefono ? `tel:${lead.telefono}` : undefined} icon={<Phone size={14} />} />
-              <InfoField label="Web" value={lead.web} href={lead.web} external icon={<Globe size={14} />} />
-              <InfoField label="Perfil Idealista" value={lead.perfilIdealista ? 'Ver perfil' : undefined} href={lead.perfilIdealista} external icon={<ExternalLink size={14} />} />
-              <InfoField label="Fuente" value={lead.fuente} />
-              <InfoField label="Validado" value={formatDate(lead.validado)} icon={<Calendar size={14} />} />
-              <InfoField label="Nº Anuncios" value={lead.numAnuncios} />
-              <InfoField label="Nivel volumen" value={lead.nivelVolumen} />
-              {lead.tipoAlquiler?.length > 0 && (
-                <div className="col-span-2">
-                  <p className="text-xs text-muted mb-2">Tipo alquiler</p>
-                  <div className="flex flex-wrap gap-1">
-                    {lead.tipoAlquiler.map((t) => (
-                      <Badge key={t} color="#7c3aed">{t}</Badge>
-                    ))}
-                  </div>
-                </div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                <Building2 size={16} className="text-primary" /> Información
+              </h3>
+              {canEdit && !editingInfo && (
+                <Button variant="ghost" size="sm" onClick={startEditInfo}>
+                  <Edit3 size={14} /> Editar
+                </Button>
               )}
             </div>
+
+            {editingInfo && infoForm ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <EditableField
+                    label="Nombre agencia"
+                    value={infoForm.nombre}
+                    onChange={(v) => setInfoForm({ ...infoForm, nombre: v })}
+                    span={2}
+                  />
+                  <EditableField
+                    label="Provincia"
+                    value={infoForm.provincia}
+                    onChange={(v) => setInfoForm({ ...infoForm, provincia: v })}
+                  />
+                  <EditableField
+                    label="Zona"
+                    value={infoForm.zona}
+                    onChange={(v) => setInfoForm({ ...infoForm, zona: v })}
+                  />
+                  <EditableField
+                    label="Email"
+                    type="email"
+                    value={infoForm.email}
+                    onChange={(v) => setInfoForm({ ...infoForm, email: v })}
+                  />
+                  <EditableField
+                    label="Teléfono"
+                    value={infoForm.telefono}
+                    onChange={(v) => setInfoForm({ ...infoForm, telefono: v })}
+                  />
+                  <EditableField
+                    label="Web"
+                    value={infoForm.web}
+                    onChange={(v) => setInfoForm({ ...infoForm, web: v })}
+                  />
+                  <EditableField
+                    label="Perfil Idealista"
+                    value={infoForm.perfilIdealista}
+                    onChange={(v) => setInfoForm({ ...infoForm, perfilIdealista: v })}
+                  />
+                  <div>
+                    <p className="text-xs text-muted mb-1">Fuente</p>
+                    <select
+                      value={infoForm.fuente}
+                      onChange={(e) => setInfoForm({ ...infoForm, fuente: e.target.value as LeadSource | '' })}
+                      className="w-full bg-surface-700 border border-border rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+                    >
+                      <option value="">—</option>
+                      {LEAD_SOURCES.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <EditableField
+                    label="Nº anuncios activos"
+                    value={infoForm.numAnuncios}
+                    onChange={(v) => setInfoForm({ ...infoForm, numAnuncios: v })}
+                  />
+                  <EditableField
+                    label="Nivel volumen"
+                    value={infoForm.nivelVolumen}
+                    onChange={(v) => setInfoForm({ ...infoForm, nivelVolumen: v })}
+                  />
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted mb-2">Tipo de alquiler</p>
+                    <div className="flex flex-wrap gap-2">
+                      {RENTAL_TYPES.map((type) => {
+                        const active = infoForm.tipoAlquiler.includes(type);
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => toggleTipoAlquiler(type)}
+                            className={`px-3 py-1.5 rounded-xl text-xs transition-all cursor-pointer ${
+                              active
+                                ? 'bg-primary/20 text-white border border-primary/50'
+                                : 'bg-surface-700 text-muted border border-border hover:text-white'
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {saveError && (
+                  <p className="text-xs text-alert">{saveError}</p>
+                )}
+
+                <div className="flex gap-2 pt-2 border-t border-border/40">
+                  <Button size="sm" onClick={handleSaveInfo} disabled={updateLead.isPending}>
+                    <Save size={14} /> Guardar
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={cancelEditInfo} disabled={updateLead.isPending}>
+                    <X size={14} /> Cancelar
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <InfoField label="Email" value={lead.email} href={lead.email ? `mailto:${lead.email}` : undefined} icon={<Mail size={14} />} />
+                <InfoField label="Teléfono" value={lead.telefono} href={lead.telefono ? `tel:${lead.telefono}` : undefined} icon={<Phone size={14} />} />
+                <InfoField label="Web" value={lead.web} href={lead.web} external icon={<Globe size={14} />} />
+                <InfoField label="Perfil Idealista" value={lead.perfilIdealista ? 'Ver perfil' : undefined} href={lead.perfilIdealista} external icon={<ExternalLink size={14} />} />
+                <InfoField label="Fuente" value={lead.fuente} />
+                <InfoField label="Validado" value={formatDate(lead.validado)} icon={<Calendar size={14} />} />
+                <InfoField label="Nº Anuncios" value={lead.numAnuncios} />
+                <InfoField label="Nivel volumen" value={lead.nivelVolumen} />
+                {lead.tipoAlquiler?.length > 0 && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted mb-2">Tipo alquiler</p>
+                    <div className="flex flex-wrap gap-1">
+                      {lead.tipoAlquiler.map((t) => (
+                        <Badge key={t} color="#7c3aed">{t}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
 
           {/* Notes */}
@@ -246,6 +448,32 @@ export function LeadDetailPage() {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function EditableField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  span = 1,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  span?: 1 | 2;
+}) {
+  return (
+    <div className={span === 2 ? 'col-span-2' : undefined}>
+      <p className="text-xs text-muted mb-1">{label}</p>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full bg-surface-700 border border-border rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30"
+      />
     </div>
   );
 }

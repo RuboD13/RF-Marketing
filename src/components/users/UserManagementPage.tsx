@@ -34,7 +34,7 @@ interface FormState {
 const EMPTY_FORM: FormState = { email: '', password: '', nombre: '', role: 'comercial' };
 
 export function UserManagementPage() {
-  const { data: users, isLoading } = useUsers();
+  const { data: users, isLoading, error, refetch } = useUsers();
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deleteUser = useDeleteUser();
@@ -81,6 +81,19 @@ export function UserManagementPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Spinner size={28} />
+      </div>
+    );
+  }
+
+  if (error) {
+    const message = (error as { response?: { data?: { error?: string } }; message?: string })?.response?.data?.error
+      || (error as { message?: string })?.message
+      || 'Error desconocido';
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-3">
+        <p className="text-sm text-alert">No se pudieron cargar los usuarios</p>
+        <p className="text-xs text-muted max-w-md text-center">{message}</p>
+        <Button size="sm" variant="ghost" onClick={() => refetch()}>Reintentar</Button>
       </div>
     );
   }

@@ -517,8 +517,8 @@ export function LeadTablePage() {
                           key={lead.id}
                           className={`hover:bg-primary/10 transition-all duration-200 cursor-pointer group ${isSelected ? 'bg-primary/12 border-l-2 border-primary' : idx % 2 === 1 ? 'bg-white/2' : ''}`}
                           onClick={() => {
-                            setDetailModalLeadId(lead.id);
-                            setDetailModalFromAgenciasBase(true);
+                            handleCloseAgenciasBaseModal();
+                            navigate(`/leads/${lead.id}`);
                           }}
                         >
                           <td className="px-2 py-1.5">

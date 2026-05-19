@@ -173,11 +173,34 @@ export async function getLeads(filters?: {
 }
 
 export async function getLead(recordId: string): Promise<Lead | null> {
+  // Try the main AGENCIAS table first, then fall back to AGENCIAS BASE
   try {
     const record = await leadsTable.find(recordId);
     return mapRecordToLead(record);
   } catch {
-    return null;
+    // Not in AGENCIAS, try AGENCIAS BASE
+    try {
+      const record = await agenciasBaseTable.find(recordId);
+      return mapRecordToLead(record);
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function findLeadTable(
+  recordId: string
+): Promise<Airtable.Table<Airtable.FieldSet> | null> {
+  try {
+    await leadsTable.find(recordId);
+    return leadsTable;
+  } catch {
+    try {
+      await agenciasBaseTable.find(recordId);
+      return agenciasBaseTable;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -261,7 +284,12 @@ export async function updateLead(
   updates: Record<string, unknown>
 ): Promise<Lead> {
   const airtableFields = camelToAirtable(updates) as Partial<Airtable.FieldSet>;
-  const record = await leadsTable.update(recordId, airtableFields);
+  // The record might live in AGENCIAS or in AGENCIAS BASE — try both.
+  const table = await findLeadTable(recordId);
+  if (!table) {
+    throw new Error(`Lead ${recordId} no encontrado en AGENCIAS ni en AGENCIAS BASE`);
+  }
+  const record = await table.update(recordId, airtableFields);
   // Invalidate cache
   cache.flushAll();
   return mapRecordToLead(record as Airtable.Record<Airtable.FieldSet>);
